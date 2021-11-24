@@ -1,0 +1,67 @@
+---
+title: "Logistic Regression with missing values"
+author: "Pierre Guillaumont et Stéphane Sadio"
+date: "24/11/2021"
+output: html_document
+---
+
+```{r}
+library(mice)
+
+n <- 10  # number of subjects
+p <- 2     # number of explanatory variables
+mu.star <- 1:p  # mean of the explanatory variables
+sd <- 1:p # standard deviations
+# with correlation
+#C <- matrix(c(   # correlation matrix
+#  1,   0.8, 0,   0,   0,
+#  0.8, 1,   0,   0,   0,
+#  0,   0,   1,   0.3, 0.6,
+#  0,   0,   0.3, 1,   0.7,
+#  0,   0,   0.6, 0.7, 1), nrow = p)
+C = matrix(c(1, 0.8, 0.8, 1), nrow = p)
+Sigma.star <- diag(sd) %*% C %*% diag(sd) # variance-covariance matrix of the explanatory variables
+# beta.star <- c(0.5, -0.3, 1, 0, -0.6) # coefficients of logistic regression
+beta.star <- c(0.5, -0.3)
+beta0.star <- -0.2  # intercept
+beta.true = c(beta0.star,beta.star)
+#percentage of missingness
+p.miss <- 0.10 
+
+nbsim = 10
+
+for (NB in 1:nbsim){
+  set.seed(NB)
+  # complete data simulation
+  X.small.complete <- matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
+  p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
+  y <- as.numeric(runif(n) < p1)
+  
+# ----- No NA : classical estimation in the case without missingness
+  data.small.complete <- data.frame(y=y,X.small.complete)
+  model.small.complete <- glm(y ~.,family=binomial(link='logit'),data = data.small.complete)
+  beta0.small.complete <- model.small.complete$coefficients[1]
+  beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
+  P <- predict(model.small.complete, type = "response")
+  W <- diag(P * (1 - P))
+  X <- model.matrix(model.small.complete)
+  V_complete <- solve(t(X) %*% W %*% X)
+  std.small.complete <- sqrt(diag(V_complete))
+  
+# generating missing data - MCAR missingness
+  X.obs <- X.small.complete
+  patterns = runif(n * p) < p.miss
+  X.obs[patterns] <- NA
+  
+# ------- CC : estimation ignoring the missing data
+  data.obs <- data.frame(y=y,X.obs)
+  model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
+  beta0.small.cc <- model.obs$coefficients[1]
+  beta.small.cc <- model.obs$coefficients[2:(p+1)]
+  P <- predict(model.obs, type = "response")
+  W <- diag(P*(1-P))
+  X <- model.matrix(model.obs)
+  V_cc <- solve(t(X)%*%W%*%X)
+  std.small.cc <- sqrt(diag(V_cc))
+}
+```
