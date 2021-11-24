@@ -25,9 +25,10 @@ Sigma.star <- diag(sd) %*% C %*% diag(sd) # variance-covariance matrix of the ex
 beta.star <- c(0.5, -0.3)
 beta0.star <- -0.2  # intercept
 beta.true = c(beta0.star,beta.star)
+
 #percentage of missingness
 p.miss <- 0.10 
-
+tau = seq(0.5, 1, by = 0.1)
 nbsim = 10
 
 for (NB in 1:nbsim){
@@ -42,7 +43,7 @@ for (NB in 1:nbsim){
   model.small.complete <- glm(y ~.,family=binomial(link='logit'),data = data.small.complete)
   beta0.small.complete <- model.small.complete$coefficients[1]
   beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
-  P <- predict(model.small.complete, type = "response")
+  P.no.NA <- predict(model.small.complete, type = "response")
   W <- diag(P * (1 - P))
   X <- model.matrix(model.small.complete)
   V_complete <- solve(t(X) %*% W %*% X)
@@ -58,7 +59,7 @@ for (NB in 1:nbsim){
   model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
-  P <- predict(model.obs, type = "response")
+  P.CC <- predict(model.obs, type = "response")
   W <- diag(P*(1-P))
   X <- model.matrix(model.obs)
   V_cc <- solve(t(X)%*%W%*%X)
