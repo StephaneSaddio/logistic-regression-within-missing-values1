@@ -5,11 +5,12 @@ date: "24/11/2021"
 output: html_document
 ---
 
-```{r}
-library(mice)
+```{r init}
+library(tictoc)
+library(misaem)
 
-n <- 10  # number of subjects
-p <- 2     # number of explanatory variables
+n <- 100  # number of subjects
+p <- 3     # number of explanatory variables
 mu.star <- 1:p  # mean of the explanatory variables
 sd <- 1:p # standard deviations
 # with correlation
@@ -19,18 +20,29 @@ sd <- 1:p # standard deviations
 #  0,   0,   1,   0.3, 0.6,
 #  0,   0,   0.3, 1,   0.7,
 #  0,   0,   0.6, 0.7, 1), nrow = p)
-C = matrix(c(1, 0.8, 0.8, 1), nrow = p)
+C = matrix(c(1, 0.8,0, 0.8, 1, 0, 0, 0, 1), nrow = p)
 Sigma.star <- diag(sd) %*% C %*% diag(sd) # variance-covariance matrix of the explanatory variables
 # beta.star <- c(0.5, -0.3, 1, 0, -0.6) # coefficients of logistic regression
-beta.star <- c(0.5, -0.3)
+beta.star <- c(0.5, -0.3, 1)
 beta0.star <- -0.2  # intercept
 beta.true = c(beta0.star,beta.star)
 
 #percentage of missingness
-p.miss <- 0.10 
+p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
-nbsim = 10
+nbsim = 20
 
+EST.small.saem = EST.small.comp = EST.small.cc  = matrix(0, nbsim,length(beta.star)+1)
+TIME.small.saem  = rep(0, nbsim)
+STD.small.saem = STD.small.comp = STD.small.cc = STD.small.mice = matrix(0, nbsim,length(beta.star)+1)
+LENGTH.small.saem = LENGTH.small.comp = LENGTH.small.cc = matrix(0, nbsim,length(beta.star)+1)
+count.small.saem = count.small.comp = count.small.cc = rep(0,p+1)
+```
+
+
+
+```{r SAEM, warning = FALSE}
+tic()
 for (NB in 1:nbsim){
   set.seed(NB)
   # complete data simulation
@@ -38,31 +50,82 @@ for (NB in 1:nbsim){
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
   y <- as.numeric(runif(n) < p1)
   
-# ----- No NA : classical estimation in the case without missingness
+  # ----- No NA : classical estimation in the case without missingness
   data.small.complete <- data.frame(y=y,X.small.complete)
-  model.small.complete <- glm(y ~.,family=binomial(link='logit'),data = data.small.complete)
+  model.small.complete <- glm(y~.,family=binomial(link='logit'),data = data.small.complete)
   beta0.small.complete <- model.small.complete$coefficients[1]
   beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
   P.no.NA <- predict(model.small.complete, type = "response")
-  W <- diag(P * (1 - P))
+  W <- diag(P.no.NA * (1 - P.no.NA))
   X <- model.matrix(model.small.complete)
   V_complete <- solve(t(X) %*% W %*% X)
   std.small.complete <- sqrt(diag(V_complete))
   
-# generating missing data - MCAR missingness
+  # generating missing data - MCAR missingness
   X.obs <- X.small.complete
   patterns = runif(n * p) < p.miss
   X.obs[patterns] <- NA
   
-# ------- CC : estimation ignoring the missing data
+  # ------- CC : estimation ignoring the missing data
   data.obs <- data.frame(y=y,X.obs)
   model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
   P.CC <- predict(model.obs, type = "response")
-  W <- diag(P*(1-P))
+  W <- diag(P.CC*(1-P.CC))
   X <- model.matrix(model.obs)
   V_cc <- solve(t(X)%*%W%*%X)
   std.small.cc <- sqrt(diag(V_cc))
+  
+  # -------  SAEM
+  list.small.saem = miss.saem(X.obs, y, print_iter = FALSE, var_cal = TRUE)
+  beta.small.saem = list.small.saem$beta
+  std.small.saem = list.small.saem$std_obs
+  
+  EST.small.comp[NB,] = c(beta0.small.complete,beta.small.complete)
+  EST.small.cc[NB,] = c(beta0.small.cc,beta.small.cc)
+  EST.small.saem[NB,] = beta.small.saem
+  
+  
+  STD.small.comp[NB,] = std.small.complete
+  STD.small.cc[NB,] = std.small.cc
+  STD.small.saem[NB,] = std.small.saem
+  
+  
+  TIME.small.saem[NB] = list.small.saem$time_run
+
+  
+  ci.small.comp_ceil =  c(beta0.small.complete,beta.small.complete) + 1.96 * std.small.complete
+  ci.small.comp_ground =  c(beta0.small.complete,beta.small.complete) - 1.96 * std.small.complete
+  ci.small.cc_ceil =  c(beta0.small.cc,beta.small.cc) + 1.96 * std.small.cc
+  ci.small.cc_ground =  c(beta0.small.cc,beta.small.cc) - 1.96 * std.small.cc
+  ci.small.saem_ceil = beta.small.saem + 1.96 * std.small.saem
+  ci.small.saem_ground = beta.small.saem - 1.96 * std.small.saem
+
+  
+  LENGTH.small.comp[NB,] = ci.small.comp_ceil - ci.small.comp_ground
+  LENGTH.small.cc[NB,] = ci.small.cc_ceil - ci.small.cc_ground
+  LENGTH.small.saem[NB,] = ci.small.saem_ceil - ci.small.saem_ground
+ for(i in 1:(p+1)){
+    if( ci.small.comp_ground[i] <= beta.true[i] & ci.small.comp_ceil[i] > beta.true[i])
+      {
+      count.small.comp[i] <- count.small.comp[i]+1
+    }
+    if( ci.small.cc_ground[i] <= beta.true[i] & ci.small.cc_ceil[i] > beta.true[i])
+      {
+      count.small.cc[i] <- count.small.cc[i]+1
+    }
+    if( ci.small.saem_ground[i] <=beta.true[i] & ci.small.saem_ceil[i] > beta.true[i])
+      {
+      count.small.saem[i] <- count.small.saem[i]+1
+    }
+  }
 }
+toc()
+```
+
+```{r}
+count.small.cc # ignoring missing values
+count.small.comp # all data
+count.small.saem 
 ```
