@@ -8,6 +8,7 @@ output: html_document
 ```{r init}
 library(tictoc)
 library(misaem)
+library(caret)
 
 n <- 100  # number of subjects
 p <- 3     # number of explanatory variables
@@ -31,6 +32,7 @@ beta.true = c(beta0.star,beta.star)
 p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
 nbsim = 20
+pred = y.confusion = NULL
 
 EST.small.saem = EST.small.comp = EST.small.cc  = matrix(0, nbsim,length(beta.star)+1)
 TIME.small.saem  = rep(0, nbsim)
@@ -47,8 +49,10 @@ for (NB in 1:nbsim){
   set.seed(NB)
   # complete data simulation
   X.small.complete <- matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
+  X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
   y <- as.numeric(runif(n) < p1)
+  y.test = as.numeric(runif(n) < p1)
   
   # ----- No NA : classical estimation in the case without missingness
   data.small.complete <- data.frame(y=y,X.small.complete)
@@ -65,7 +69,7 @@ for (NB in 1:nbsim){
   X.obs <- X.small.complete
   patterns = runif(n * p) < p.miss
   X.obs[patterns] <- NA
-  
+
   # ------- CC : estimation ignoring the missing data
   data.obs <- data.frame(y=y,X.obs)
   model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
@@ -76,56 +80,56 @@ for (NB in 1:nbsim){
   X <- model.matrix(model.obs)
   V_cc <- solve(t(X)%*%W%*%X)
   std.small.cc <- sqrt(diag(V_cc))
-  
-  # -------  SAEM
-  list.small.saem = miss.saem(X.obs, y, print_iter = FALSE, var_cal = TRUE)
-  beta.small.saem = list.small.saem$beta
-  std.small.saem = list.small.saem$std_obs
-  
-  EST.small.comp[NB,] = c(beta0.small.complete,beta.small.complete)
-  EST.small.cc[NB,] = c(beta0.small.cc,beta.small.cc)
-  EST.small.saem[NB,] = beta.small.saem
-  
-  
-  STD.small.comp[NB,] = std.small.complete
-  STD.small.cc[NB,] = std.small.cc
-  STD.small.saem[NB,] = std.small.saem
-  
-  
-  TIME.small.saem[NB] = list.small.saem$time_run
 
-  
-  ci.small.comp_ceil =  c(beta0.small.complete,beta.small.complete) + 1.96 * std.small.complete
-  ci.small.comp_ground =  c(beta0.small.complete,beta.small.complete) - 1.96 * std.small.complete
-  ci.small.cc_ceil =  c(beta0.small.cc,beta.small.cc) + 1.96 * std.small.cc
-  ci.small.cc_ground =  c(beta0.small.cc,beta.small.cc) - 1.96 * std.small.cc
-  ci.small.saem_ceil = beta.small.saem + 1.96 * std.small.saem
-  ci.small.saem_ground = beta.small.saem - 1.96 * std.small.saem
+ # -------  SAEM
+ list.small.saem = miss.saem(X.obs, y, print_iter = FALSE, var_cal = TRUE)
+ beta.small.saem = list.small.saem$beta
+ std.small.saem = list.small.saem$std_obs
 
-  
-  LENGTH.small.comp[NB,] = ci.small.comp_ceil - ci.small.comp_ground
-  LENGTH.small.cc[NB,] = ci.small.cc_ceil - ci.small.cc_ground
-  LENGTH.small.saem[NB,] = ci.small.saem_ceil - ci.small.saem_ground
- for(i in 1:(p+1)){
-    if( ci.small.comp_ground[i] <= beta.true[i] & ci.small.comp_ceil[i] > beta.true[i])
-      {
-      count.small.comp[i] <- count.small.comp[i]+1
-    }
-    if( ci.small.cc_ground[i] <= beta.true[i] & ci.small.cc_ceil[i] > beta.true[i])
-      {
-      count.small.cc[i] <- count.small.cc[i]+1
-    }
-    if( ci.small.saem_ground[i] <=beta.true[i] & ci.small.saem_ceil[i] > beta.true[i])
-      {
-      count.small.saem[i] <- count.small.saem[i]+1
-    }
-  }
+ EST.small.comp[NB,] = c(beta0.small.complete,beta.small.complete)
+ EST.small.cc[NB,] = c(beta0.small.cc,beta.small.cc)
+ EST.small.saem[NB,] = beta.small.saem
+
+
+ STD.small.comp[NB,] = std.small.complete
+ STD.small.cc[NB,] = std.small.cc
+ STD.small.saem[NB,] = std.small.saem
+
+predSAEM = round(pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)) # prediction
+pred = c(pred,predSAEM) 
+y.confusion = c(y.confusion, y.test)
+#  TIME.small.saem[NB] = list.small.saem$time_run
+# 
+# 
+#  ci.small.comp_ceil =  c(beta0.small.complete,beta.small.complete) + 1.96 * std.small.complete
+#  ci.small.comp_ground =  c(beta0.small.complete,beta.small.complete) - 1.96 * std.small.complete
+#  ci.small.cc_ceil =  c(beta0.small.cc,beta.small.cc) + 1.96 * std.small.cc
+#  ci.small.cc_ground =  c(beta0.small.cc,beta.small.cc) - 1.96 * std.small.cc
+#  ci.small.saem_ceil = beta.small.saem + 1.96 * std.small.saem
+#  ci.small.saem_ground = beta.small.saem - 1.96 * std.small.saem
+# 
+# 
+#  LENGTH.small.comp[NB,] = ci.small.comp_ceil - ci.small.comp_ground
+#  LENGTH.small.cc[NB,] = ci.small.cc_ceil - ci.small.cc_ground
+#  LENGTH.small.saem[NB,] = ci.small.saem_ceil - ci.small.saem_ground
+# for(i in 1:(p+1)){
+#    if( ci.small.comp_ground[i] <= beta.true[i] & ci.small.comp_ceil[i] > beta.true[i])
+#      {
+#      count.small.comp[i] <- count.small.comp[i]+1
+#    }
+#    if( ci.small.cc_ground[i] <= beta.true[i] & ci.small.cc_ceil[i] > beta.true[i])
+#      {
+#      count.small.cc[i] <- count.small.cc[i]+1
+#    }
+#    if( ci.small.saem_ground[i] <=beta.true[i] & ci.small.saem_ceil[i] > beta.true[i])
+#      {
+#      count.small.saem[i] <- count.small.saem[i]+1
+#    }
+#  }
 }
+
+confusionMatrix(table(pred,y.confusion))
+
 toc()
 ```
 
-```{r}
-count.small.cc # ignoring missing values
-count.small.comp # all data
-count.small.saem 
-```
